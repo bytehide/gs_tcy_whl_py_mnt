@@ -1,0 +1,75 @@
+# crAPI chatbot + ByteHide RASP (wheel COMPILADA cp311).
+# OJO con la libc: el chatbot suele ser python:3.11-SLIM (glibc), NO alpine. Comprueba con:
+#   docker exec crapi-chatbot sh -c 'cat /etc/os-release | head -1'
+#   - Debian/Ubuntu -> glibc  -> usa la wheel glibc (BH_WHEEL_URL por defecto, abajo).
+#   - Alpine        -> musl   -> apunta BH_WHEEL_URL a la wheel musl (la del workshop).
+#
+# La wheel glibc hay que COMPILARLA y subirla al repo (con nombre distinto para no pisar la musl):
+#   cd bytehide-monitor-python
+#   docker run --rm --platform linux/amd64 -v "$PWD":/src -w /src python:3.11-slim bash -c \
+#     "apt-get update -qq && apt-get install -y -qq gcc >/dev/null && pip install -q cython setuptools wheel && python tools/build_compiled_wheel.py"
+#   # renómbrala antes de commitear (el nombre PEP427 es idéntico al de la musl):
+#   mv dist_compiled/bytehide_monitor-0.1.0-cp311-cp311-linux_x86_64.whl \
+#      dist_compiled/gs_tcy_whl_py_mnt/bytehide_monitor-0.1.0-cp311-glibc-linux_x86_64.whl
+#   # git add + commit + push
+#
+# Uso (junto al docker-compose.yml):
+#   docker compose up -d --build crapi-chatbot && docker restart crapi-web
+FROM crapi/crapi-chatbot:latest
+USER root
+
+# Por defecto la glibc (chatbot = slim). Si tu chatbot fuese alpine, cambia esta URL por la musl.
+ARG BH_WHEEL_URL=https://raw.githubusercontent.com/bytehide/gs_tcy_whl_py_mnt/main/bytehide_monitor-0.1.0-cp311-glibc-linux_x86_64.whl
+RUN pip install --no-cache-dir "${BH_WHEEL_URL}"
+
+# --- Fix crAPI chatbot: el MCP server de la imagen publicada llama al identity por HTTPS (cert
+# autofirmado) SIN verify=False y crashea al importar -> nadie escucha en :5500 -> 500 en /genai/ask.
+# Forzamos verify=False por defecto en todos los clientes httpx vía un hook de arranque (.pth).
+RUN python3 - <<'PY'
+import site, os
+sp = site.getsitepackages()[0]
+patch = (
+    "try:\n"
+    "    import functools, httpx\n"
+    "    for _c in (httpx.Client, httpx.AsyncClient):\n"
+    "        _o = _c.__init__\n"
+    "        def _mk(o):\n"
+    "            @functools.wraps(o)\n"
+    "            def _i(self, *a, **k):\n"
+    "                k.setdefault('verify', False)\n"
+    "                return o(self, *a, **k)\n"
+    "            return _i\n"
+    "        _c.__init__ = _mk(_o)\n"
+    "except Exception:\n"
+    "    pass\n"
+)
+open(os.path.join(sp, "bh_httpx_noverify.py"), "w").write(patch)
+open(os.path.join(sp, "zz_bh_httpx_noverify.pth"), "w").write("import bh_httpx_noverify\n")
+print("httpx-noverify hook installed in", sp)
+PY
+
+# --- Fix crAPI chatbot: el cliente MCP conecta a localhost:5500 y FastMCP 2.x lo rechaza con 403
+# (anti DNS-rebinding) -> 127.0.0.1. Y el agente se hace TOLERANTE a un fallo del MCP para que
+# /genai/ask no devuelva 500 (corre sin tools si el MCP no levanta).
+RUN python3 - <<'PY'
+import os
+mc = "/app/chatbot/mcp_client.py"
+if os.path.exists(mc):
+    s = open(mc).read().replace("http://localhost:5500/mcp/", "http://127.0.0.1:5500/mcp/")
+    open(mc, "w").write(s)
+    print("patched mcp_client -> 127.0.0.1")
+la = "/app/chatbot/langgraph_agent.py"
+if os.path.exists(la):
+    s = open(la).read()
+    old = "mcp_tools = await mcp_client.get_tools()"
+    if old in s and "bh-tolerant" not in s:
+        out = []
+        for ln in s.splitlines(keepends=True):
+            if old in ln:
+                ind = ln[: len(ln) - len(ln.lstrip())]
+                out.append(f"{ind}try:\n{ind}    {old}\n{ind}except Exception:  # bh-tolerant\n{ind}    mcp_tools = []\n")
+            else:
+                out.append(ln)
+        open(la, "w").write("".join(out))
+        print("patched langgraph_agent: MCP failure tolerant")
+PY

@@ -1,0 +1,16 @@
+# crAPI workshop (python:3.11-alpine, musl) + ByteHide RASP (wheel COMPILADA cp311 musl).
+# Zero-code: el wheel instala un .pth de autostart que arma protect() al iniciar el intérprete; los
+# sinks (wrapt) enganchan Flask/requests/drivers de BD sin tocar el código de crAPI.
+#
+# El token, AUTO, staging, session-block y SSRF/DLP van por `environment:` en el docker-compose.yml,
+# NO aquí (no horneamos secretos en la imagen).
+#
+# Uso (junto al docker-compose.yml):
+#   docker compose up -d --build crapi-workshop && docker restart crapi-web
+FROM crapi/crapi-workshop:latest
+USER root
+
+# Wheel COMPILADA: cp311 + musl + x86_64. Tiene que coincidir EXACTO con la imagen
+# (Python 3.11, Alpine/musl, x86_64). Verificado: el .so es *.cpython-311-x86_64-linux-musl.so.
+ARG BH_WHEEL_URL=https://raw.githubusercontent.com/bytehide/gs_tcy_whl_py_mnt/main/bytehide_monitor-0.1.0-cp311-cp311-linux_x86_64.whl
+RUN pip install --no-cache-dir "${BH_WHEEL_URL}"
