@@ -1,0 +1,21 @@
+# crAPI identity (Java / Spring Boot) + ByteHide RASP (agente javaagent).
+# Zero-code: el javaagent (ByteBuddy) instala el filtro inbound + los sinks al arrancar la JVM; se
+# activa por JAVA_TOOL_OPTIONS=-javaagent:... en el docker-compose.yml, sin tocar el codigo de crAPI.
+#
+# El token, AUTO y staging van por `environment:` en el docker-compose.yml, NO aqui (no horneamos
+# secretos en la imagen).
+#
+# Uso (junto al docker-compose.yml):
+#   docker compose up -d --build crapi-identity
+FROM crapi/crapi-identity:latest
+USER root
+
+# Shadow jar del agente (Premain-Class = com.bytehide.monitor.agent.Agent). ByteBuddy/OkHttp/Jackson/
+# SLF4J van relocados dentro del jar, asi que no chocan con las libs de la app. Se tira por URL raw del
+# repo de entrega (mismo metodo que los wheels Python), para no depender del build context.
+ARG BH_AGENT_URL=https://raw.githubusercontent.com/bytehide/gs_tcy_whl_py_mnt/main/monitor-java-agent-1.0.4.jar
+ADD ${BH_AGENT_URL} /opt/bytehide/monitor-java-agent.jar
+
+# Config minima: preset "cloud" -> todos los detectores cloud arrancan en block sin depender de que el
+# heartbeat/dashboard los configure. Se referencia por BYTEHIDE_MONITOR_CONFIG en el environment.
+RUN printf '{\n  "preset": "cloud"\n}\n' > /opt/bytehide/monitor.json
