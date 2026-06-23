@@ -13,8 +13,11 @@ USER root
 # Shadow jar del agente (Premain-Class = com.bytehide.monitor.agent.Agent). ByteBuddy/OkHttp/Jackson/
 # SLF4J van relocados dentro del jar, asi que no chocan con las libs de la app. Se tira por URL raw del
 # repo de entrega (mismo metodo que los wheels Python), para no depender del build context.
+# CACHE-BUST: sube BH_REV al recompilar/subir un jar nuevo (mismo nombre). El query `?rev=N` cambia la
+# URL -> Docker no reutiliza el ADD cacheado y el CDN de GitHub sirve el jar nuevo.
+ARG BH_REV=1
 ARG BH_AGENT_URL=https://raw.githubusercontent.com/bytehide/gs_tcy_whl_py_mnt/main/monitor-java-agent-1.0.4.jar
-ADD ${BH_AGENT_URL} /opt/bytehide/monitor-java-agent.jar
+ADD ${BH_AGENT_URL}?rev=${BH_REV} /opt/bytehide/monitor-java-agent.jar
 
 # Config minima: preset "cloud" -> todos los detectores cloud arrancan en block sin depender de que el
 # heartbeat/dashboard los configure. Se referencia por BYTEHIDE_MONITOR_CONFIG en el environment.

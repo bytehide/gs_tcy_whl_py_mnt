@@ -19,5 +19,8 @@ FROM crapi/crapi-chatbot:latest
 USER root
 
 # Por defecto la glibc (chatbot = slim). Si tu chatbot fuese alpine, cambia esta URL por la musl.
+# CACHE-BUST: sube BH_REV al recompilar/subir un wheel nuevo (mismo nombre). El query `?rev=N` invalida
+# la capa de Docker y salta el CDN de GitHub; pip ignora el query para el nombre del wheel.
+ARG BH_REV=1
 ARG BH_WHEEL_URL=https://raw.githubusercontent.com/bytehide/gs_tcy_whl_py_mnt/main/bytehide_monitor-0.1.0-cp311-glibc-linux_x86_64.whl
-RUN pip install --no-cache-dir "${BH_WHEEL_URL}"
+RUN pip install --no-cache-dir "${BH_WHEEL_URL}?rev=${BH_REV}"
