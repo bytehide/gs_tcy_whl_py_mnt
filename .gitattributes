@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Los artefactos son binarios. Sin esto, `text=auto` decide por heuristica y una normalizacion
+# de finales de linea sobre un .whl (un zip) lo deja irrecuperable.
+*.whl binary
+*.jar binary
